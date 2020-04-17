@@ -11,6 +11,7 @@ public final class Messages {
 //    public static final String SERVERIDENTIFIED = "You are true";
     // Server
     public static final String StartReply = "Hello, this is SecStore!";
+    public static final String RequestPublicKey = "PublicKey";
 //    public static final String SIGNEDCERT = "1234567890";
 //    public static final String REQUESTCLIENTPUBLICKEY = "Send me your public key";
 //    public static final String SERVERREADYTORECEIVE = "Ready to receive your file";
