@@ -2,6 +2,7 @@ import java.io.*;
 import java.security.*;
 import java.net.Socket;
 import java.util.Arrays;
+import java.util.ArrayList;
 import javax.crypto.Cipher;
 import java.nio.file.Files;
 import java.nio.file.Paths;
@@ -13,13 +14,13 @@ import java.security.spec.PKCS8EncodedKeySpec;
 public class ServerCP1 {
     private ServerSocket serverSocket;
     private Socket socket;
-    private DataInputStream from;
-    private DataOutputStream target;
     private BufferedReader reader;
     private PrintWriter writer;
     private Cipher EnCipher;
     private KeyFactory keyFactory;
     private boolean finish = false;
+    private Cipher deCipher;
+    private final ArrayList<WriteToDisk> writeToDisks = new ArrayList<>();
 
     public static void main(String[] args) {
         int port = 1234;
@@ -31,7 +32,6 @@ public class ServerCP1 {
         }
         if (!server.verifyClient()) {
             server.close();
-
             System.out.println("[FAIL] Verification failed, GOODBYE");
             return;
         }
@@ -42,30 +42,100 @@ public class ServerCP1 {
             long end = System.currentTimeMillis();
             System.out.println("[INFO] Finished transfer in " + (end - start) / 1000 + " seconds");
         }
+        System.out.println("[FINISH] Finished transferring all the files");
+        server.close();
+    }
+
+    class WriteToDisk extends Thread {
+        String input;
+        String name;
+        boolean workerFinished = false;
+
+        public WriteToDisk(String input, String name) {
+            this.input = input;
+            this.name = name;
+        }
+
+        @Override
+        public void run() {
+            try {
+                FileOutputStream fileOutputStream = new FileOutputStream("recv_" + name);
+                BufferedOutputStream bufferedOutputStream = new BufferedOutputStream(fileOutputStream);
+                byte[] outputBuffer = DatatypeConverter.parseBase64Binary(input);
+                byte[] decryptedOutput = decrypt(outputBuffer);
+                bufferedOutputStream.write(decryptedOutput, 0, decryptedOutput.length);
+                bufferedOutputStream.close();
+                fileOutputStream.close();
+                System.out.println("[RECV] Received file: " + name + " size: " + decryptedOutput.length);
+                workerFinished = true;
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        }
     }
 
     public void receiveFile() {
-        try {
-
-        } catch (Exception e) {
-
+        while (!finish && !socket.isClosed()) {
+            try {
+                String message = reader.readLine();
+                if (message.equals(Messages.SendingFinishAll)) {
+                    for (WriteToDisk w : writeToDisks) {
+                        try {
+                            w.join();
+                        } catch (InterruptedException e) {
+                            e.printStackTrace();
+                        }
+                    }
+                    finish = true;
+                    return;
+                }
+                String outputBufferString = reader.readLine();
+                WriteToDisk worker = new WriteToDisk(outputBufferString, message);
+                writeToDisks.add(worker);
+                worker.start();
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
         }
+    }
+
+    public byte[] decrypt(byte[] data) {
+        int start = 0;
+        ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+        byte[] temp;
+        while (start < data.length) {
+            try {
+                if (data.length - start >= 128) {
+                    temp = deCipher.doFinal(data, start, 128);
+                } else {
+                    temp = deCipher.doFinal(data, start, data.length - start);
+                }
+                buffer.write(temp, 0, temp.length);
+                start += 128;
+            } catch (Exception e) {
+//                e.printStackTrace();
+            }
+        }
+        byte[] output = buffer.toByteArray();
+        try {
+            buffer.close();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        return output;
     }
 
     public ServerCP1(int port) {
         try {
             serverSocket = new ServerSocket(port);
             socket = serverSocket.accept();
-            from = new DataInputStream(socket.getInputStream());
-            target = new DataOutputStream(socket.getOutputStream());
             reader = new BufferedReader(new InputStreamReader(new DataInputStream(socket.getInputStream())));
             writer = new PrintWriter(socket.getOutputStream(), true);
-
             PrivateKey privateKey = getPrivateKey();
             EnCipher = Cipher.getInstance("RSA/ECB/PKCS1Padding");
             EnCipher.init(Cipher.ENCRYPT_MODE, privateKey);
-//            Cipher deCipher = Cipher.getInstance("RSA/ECB/PKCS1Padding");
-//            deCipher.init(Cipher.DECRYPT_MODE, privateKey);
+            deCipher = Cipher.getInstance("RSA/ECB/PKCS1Padding");
+            deCipher.init(Cipher.DECRYPT_MODE, privateKey);
         } catch (Exception e) {
             e.printStackTrace();
         }
@@ -156,10 +226,10 @@ public class ServerCP1 {
             // load the CA file
             File caFile = new File("example.crt");
             byte[] cert = new byte[(int) caFile.length()];
-            BufferedInputStream certInput = new BufferedInputStream(new FileInputStream(caFile));
+            FileInputStream inputStream = new FileInputStream(caFile);
+            BufferedInputStream certInput = new BufferedInputStream(inputStream);
             certInput.read(cert, 0, cert.length);
             certInput.close();
-
             // sending the CA to client
             writer.println(DatatypeConverter.printBase64Binary(cert));
             writer.flush();
@@ -199,17 +269,10 @@ public class ServerCP1 {
             System.out.println("[INFO] Close the connection");
             serverSocket.close();
             socket.close();
-            from.close();
-            target.close();
             reader.close();
             writer.close();
         } catch (Exception e) {
             e.printStackTrace();
         }
     }
-
-//    private PublicKey getPublicKey(byte[] key) {
-//
-//        return null;
-//    }
 }
