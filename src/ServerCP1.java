@@ -58,7 +58,6 @@ public class ServerCP1 {
             System.out.println("[INFO] Finished transfer in " + (end - start) / 1000 + " seconds");
         }
         System.out.println("[FINISH] Finished transferring all the files");
-        close();
     }
 
     public ServerCP1(Socket socket) {
@@ -192,6 +191,7 @@ public class ServerCP1 {
             try {
                 String message = reader.readLine();
                 if (message.equals(Messages.SendingFinishAll)) {
+                    close();
                     for (WriteToDisk w : writeToDisks) {
                         try {
                             w.join();
