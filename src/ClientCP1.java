@@ -20,14 +20,24 @@ public class ClientCP1 {
         if (args.length > 1) port = Integer.parseInt(args[0]);
         String server = "localhost";
         if (args.length > 2) server = args[1];
+        if (args.length <= 2){
+            String[] temp = new String[3];
+            temp[2] = "example.txt";
+            args = temp;
+        }
+        System.out.println("[INFO] Connect to Server: "+server+" Port: "+port);
         ClientCP1 client = new ClientCP1(server, port);
-        if (!client.verifyServer()) {
-            client.close();
+        client.run(args);
+    }
+
+    public void run(String[] args){
+        if (!verifyServer()) {
+            close();
             System.out.println("[FAIL] Verification failed, GOODBYE");
             return;
         }
-        if (!client.getVerified()) {
-            client.close();
+        if (!getVerified()) {
+            close();
             System.out.println("[FAIL] Verification failed, GOODBYE");
             return;
         }
@@ -36,69 +46,17 @@ public class ClientCP1 {
         int i = 2;
         while (i < args.length) {
             String file = args[i];
-            boolean success = client.sendFileToServer(file);
+            boolean success = sendFileToServer(file);
             if (!success) {
                 System.out.println("[FAIL] Failed to send the file");
             }
             i++;
         }
         long end = System.currentTimeMillis();
-        client.writer.println(Messages.SendingFinishAll);
-        client.writer.flush();
+        writer.println(Messages.SendingFinishAll);
+        writer.flush();
         System.out.println("[FINISH] Finished transfer in " + (end - start) / 1000 + " seconds");
-        client.close();
-    }
-
-    public boolean sendFileToServer(String fileName) {
-        try {
-            File file = new File(fileName);
-            if (!file.exists() || file.isDirectory()) {
-                System.out.println("[FAIL] File does not exist, please check the filename");
-                return true;
-            }
-            writer.println(fileName);
-            writer.flush();
-            FileInputStream fileInputStream = new FileInputStream(file);
-            BufferedInputStream bufferedInputStream = new BufferedInputStream(fileInputStream);
-            int size = (int) file.length();
-            byte[] fileBuffer = new byte[size];
-            int nBit = bufferedInputStream.read(fileBuffer, 0, size);
-            byte[] encryptedFile = encrypt(fileBuffer);
-            writer.println(DatatypeConverter.printBase64Binary(encryptedFile));
-            writer.flush();
-            bufferedInputStream.close();
-            System.out.println("[SEND] Send: " + file + "\tsize: " + nBit);
-            return true;
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
-        return false;
-    }
-
-    public byte[] encrypt(byte[] data) {
-        int start = 0;
-        ByteArrayOutputStream buffer = new ByteArrayOutputStream();
-        byte[] temp;
-        while (start < data.length) {
-            try {
-                if (data.length - start >= 117) {
-                    temp = EnCipher.doFinal(data, start, 117);
-                } else {
-                    temp = EnCipher.doFinal(data, start, data.length - start);
-                }
-                buffer.write(temp, 0, temp.length);
-                start += 117;
-            } catch (Exception e) {
-                e.printStackTrace();
-            }
-        }
-        byte[] output = buffer.toByteArray();
-        try {
-            buffer.close();
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-        return output;
+        close();
     }
 
     public ClientCP1(String server, int port) {
@@ -110,51 +68,6 @@ public class ClientCP1 {
         } catch (Exception e) {
             e.printStackTrace();
         }
-    }
-
-    public boolean getVerified() {
-        try {
-            Key publicKey = keyPair.getPublic();
-            Key privateKey = keyPair.getPrivate();
-            // receive the nonce from server
-            String nonce = reader.readLine();
-            byte[] serverNonce = DatatypeConverter.parseBase64Binary(nonce);
-            System.out.println("[RECV] Received nonce from the server");
-
-            // encrypt nonce and send to server
-            Cipher EnCipher = Cipher.getInstance("RSA/ECB/PKCS1Padding");
-            EnCipher.init(Cipher.ENCRYPT_MODE, privateKey);
-            byte[] encryptedNonce = EnCipher.doFinal(serverNonce);
-            writer.println(DatatypeConverter.printBase64Binary(encryptedNonce));
-            writer.flush();
-            System.out.println("[SEND] Send encrypted nonce to server");
-
-            // receive request public key from server
-            if (!reader.readLine().equals(Messages.RequestPublicKey)) {
-                System.out.println("[FAIL] Failed to get response, close");
-                close();
-                return false;
-            }
-            System.out.println("[RECV] Receive request for pubic key");
-
-            // send public key to the server
-            writer.println(Base64.getEncoder().encodeToString(publicKey.getEncoded()));
-            writer.flush();
-            System.out.println("[SEND] Send the public key to the server");
-
-            // waiting for server to finish verification
-            if (!reader.readLine().equals(Messages.success)) {
-                System.out.println("[INFO] Client authentication failed");
-                close();
-                return false;
-            }
-            // success fully verified the client
-            System.out.println("[INFO] Verification of client identity success");
-            return true;
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
-        return false;
     }
 
     public boolean verifyServer() {
@@ -225,6 +138,103 @@ public class ClientCP1 {
             e.printStackTrace();
         }
         return false;
+    }
+
+    public boolean getVerified() {
+        try {
+            Key publicKey = keyPair.getPublic();
+            Key privateKey = keyPair.getPrivate();
+            // receive the nonce from server
+            String nonce = reader.readLine();
+            byte[] serverNonce = DatatypeConverter.parseBase64Binary(nonce);
+            System.out.println("[RECV] Received nonce from the server");
+
+            // encrypt nonce and send to server
+            Cipher EnCipher = Cipher.getInstance("RSA/ECB/PKCS1Padding");
+            EnCipher.init(Cipher.ENCRYPT_MODE, privateKey);
+            byte[] encryptedNonce = EnCipher.doFinal(serverNonce);
+            writer.println(DatatypeConverter.printBase64Binary(encryptedNonce));
+            writer.flush();
+            System.out.println("[SEND] Send encrypted nonce to server");
+
+            // receive request public key from server
+            if (!reader.readLine().equals(Messages.RequestPublicKey)) {
+                System.out.println("[FAIL] Failed to get response, close");
+                close();
+                return false;
+            }
+            System.out.println("[RECV] Receive request for pubic key");
+
+            // send public key to the server
+            writer.println(Base64.getEncoder().encodeToString(publicKey.getEncoded()));
+            writer.flush();
+            System.out.println("[SEND] Send the public key to the server");
+
+            // waiting for server to finish verification
+            if (!reader.readLine().equals(Messages.success)) {
+                System.out.println("[INFO] Client authentication failed");
+                close();
+                return false;
+            }
+            // success fully verified the client
+            System.out.println("[INFO] Verification of client identity success");
+            return true;
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return false;
+    }
+
+    public boolean sendFileToServer(String fileName) {
+        try {
+            File file = new File(fileName);
+            if (!file.exists() || file.isDirectory()) {
+                System.out.println("[FAIL] File does not exist, please check the filename");
+                return true;
+            }
+            writer.println(fileName);
+            writer.flush();
+            FileInputStream fileInputStream = new FileInputStream(file);
+            BufferedInputStream bufferedInputStream = new BufferedInputStream(fileInputStream);
+            int size = (int) file.length();
+            byte[] fileBuffer = new byte[size];
+            int nBit = bufferedInputStream.read(fileBuffer, 0, size);
+            byte[] encryptedFile = encrypt(fileBuffer);
+            writer.println(DatatypeConverter.printBase64Binary(encryptedFile));
+            writer.flush();
+            bufferedInputStream.close();
+            System.out.println("[SEND] Send: " + file + "\tsize: " + nBit);
+            return true;
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return false;
+    }
+
+    public byte[] encrypt(byte[] data) {
+        int start = 0;
+        ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+        byte[] temp;
+        while (start < data.length) {
+            try {
+                if (data.length - start >= 117) {
+                    temp = EnCipher.doFinal(data, start, 117);
+                } else {
+                    temp = EnCipher.doFinal(data, start, data.length - start);
+                }
+                buffer.write(temp, 0, temp.length);
+                start += 117;
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        }
+        byte[] output = buffer.toByteArray();
+        try {
+            buffer.close();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        return output;
     }
 
     private KeyPair getKeyPair() {
